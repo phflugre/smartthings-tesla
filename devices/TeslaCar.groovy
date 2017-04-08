@@ -1,5 +1,5 @@
 /**
- *  Tesla Switch for SmartThings
+ *  Tesla Car for SmartThings
  *  Schwark Satyavolu
  *  Originally based on: Allan Klein's (@allanak) and Mike Maxwell's code
  *
@@ -37,8 +37,8 @@ simulator {
 
 tiles {
 	standardTile("switch", "device.switch", width: 3, height: 2, canChangeIcon: true) {
-        	state "on", label: '${name}', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#79b821"
-        	state "off", label: '${name}', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
+        	state "on", label: '${name}', action: "switch.off", icon: "st.tesla.tesla-front", backgroundColor: "#79b821"
+        	state "off", label: '${name}', action: "switch.on", icon: "st.tesla.tesla-front", backgroundColor: "#ffffff"
    		}
    	standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "default", label:"", action:"refresh.refresh", icon:"st.secondary.refresh"
@@ -55,31 +55,31 @@ preferences {
 def updated() {
 }
 
-def runCommand() {
-	parent.runCommand(state.command, settings.silent, settings.nodelay)
+def runCommand(command) {
+	parent.runCommand(command, state.id)
 }
 
-def push() {
-	runCommand()	
+def poll() {
+	refresh()
 }
 
 def refresh() {
 	log.debug("running device refresh for Tesla switch")
-	parent.runCommand('STATUS', false, false)
+	parent.refresh(state.id)
 }
 
 def on() {
-	runCommand()
+	runCommand(command)
 	sendEvent(name: "switch", value: "on")
 }
 
 def off() {
-	runCommand()
+	runCommand(command)
 	sendEvent(name: "switch", value: "off")
 }
 
-def setCommand(command) {
-	state.command = command
+def setId(id) {
+	state.id = id
 }
 
 

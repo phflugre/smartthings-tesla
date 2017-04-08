@@ -47,6 +47,9 @@ def initialize() {
 	unsubscribe()
 	state.subscribe = false
 
+	if(!state.token) {
+		navigateUrl(getRecipe(id, 'token'), browserSession)
+	}
 	runIn(60*5, doDeviceSync)
 }
 
@@ -99,17 +102,37 @@ private def haversine(lat1, lon1, lat2, lon2) {
   R * c
 }
 
-private def getRecipe(command, id) {
-	def domain = "https://owner-api.teslamotors.com"
-	def STEPS = [
-			[name: 'secret', uri: 'http://pastebin.com/raw/YiLPDggh', state: [client_id: 'json:OWNERAPI_CLIENT_ID', client_secret: 'json:OWNERAPI_CLIENT_SECRET'], force_type: 'json', prefix: "{", suffix:"}"]
-			[name: 'auth', uri: "${domain}/oauth/token", variables: [grant_type: 'password', client_id: "${client_id}", client_secret: "${client_secret}", email: "${settings.username}", password: "${settings.password}"], state: ['token': 'json:access_token']],	
-			[name: 'vehicles', uri: "${domain}/api/1/vehicles", headers: ['Authorization': "Bearer ${token}"]],	
-			]
-	return STEPS.reverse()
+def setState(response, browserSession) {
+	log.debug ("setting token to ${browserSession.state.token}")
+	state.token = browserSession.state.token
 }
 
-def runCommand(command, vehicleId=null, browserSession=[:]) {
+private def getRecipe(id, command) {
+	def domain = "https://owner-api.teslamotors.com"
+	def STEPS = [
+			'secret': [name: 'secret', uri: 'http://pastebin.com/raw/YiLPDggh', state: [client_id: 'json:OWNERAPI_CLIENT_ID', client_secret: 'json:OWNERAPI_CLIENT_SECRET'], force_type: 'json', prefix: "{", suffix:'"dummy":"dummy"}']
+			'auth': [name: 'auth', uri: "${domain}/oauth/token", variables: [grant_type: 'password', client_id: "${client_id}", client_secret: "${client_secret}", email: "${settings.username}", password: "${settings.password}"], state: ['token': 'json:access_token'], processor: this.&setState],	
+			'vehicles': [name: 'vehicles', uri: "${domain}/api/1/vehicles", headers: ['Authorization': "Bearer ${token}"]],	
+			]
+	def RECIPES = [
+				'token': ['secret', 'auth']
+			]
+	if(command) {
+		if(RECIPES[command]) {
+			def recipe = []
+			RECIPES[command].each { recipe.add(0, STEPS[it]) }
+			return recipe
+		}
+		if(STEPS[command]) return STEPS[command]
+	} 
+}
+
+def runCommand(command, id=null, browserSession=[:]) {
+	if(!browserSession.state || !browserSession.state.token) {
+		if(!browserSession.state) browserSession.state = [:]
+		browserSession.state.token = state.token
+	}
+	navigateUrl(getRecipe(id, command), browserSession)
 }
 
 private def getPatternValue(html, browserSession, kind, variable, pattern=null) {
@@ -328,25 +351,26 @@ def parse(childDevice, description) {
 }
 
 def getPrefix() {
-	return "ALARMCOM"
+	return "TESLA"
 }
 
 def createSwitches() {
 	log.debug("Creating Tesla Switches...")
 
 	def PREFIX = getPrefix()
-	def COMMANDS = getCommand()
-	
+	def CARS = state.cars
+	if(!CARS) return
+
 	// add missing devices
-	COMMANDS.each() { id, map ->
+	CARS.each() { id, map ->
 		def name = map['name']
 		log.debug("processing switch ${id} with name ${name}")
 		def hubId = getHubId()
 		def device = getChildDevice("${PREFIX}${id}")
 		if(map.button && !device) {
-			def alarmSwitch = addChildDevice("schwark", "Tesla Switch", "${PREFIX}${id}", hubId, ["name": "AlarmCom.${id}", "label": "${name}", "completedSetup": true])
+			def createSwitches = addChildDevice("schwark", "Tesla Car", "${PREFIX}${id}", hubId, ["name": "Tesla.${id}", "label": "${name}", "completedSetup": true])
 			log.debug("created child device ${PREFIX}${id} with name ${name} and hub ${hubId}")
-			alarmSwitch.setCommand(id)
+			carSwitch.setId(id)
 		}
 	}
 
@@ -357,7 +381,7 @@ def createSwitches() {
 			def id = it.deviceNetworkId
 			if(id.startsWith(PREFIX)) {
 				id = id - PREFIX
-				def button = COMMANDS[id] ? COMMANDS[id].button : false
+				def button = CARS[id]
 				if(!button) deleteChildDevice(it.deviceNetworkId)
 			}
 		}
