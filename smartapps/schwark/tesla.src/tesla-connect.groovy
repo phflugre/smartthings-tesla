@@ -5,6 +5,9 @@
  *  includes code for haversine formula from https://github.com/acmeism/RosettaCodeData
  *
  */
+
+import groovy.json.JsonSlurper
+
 definition(
     name: "Tesla",
     namespace: "schwark",
@@ -48,7 +51,7 @@ def initialize() {
 	state.subscribe = false
 
 	if(!state.token) {
-		navigateUrl(getRecipe(id, 'token'), browserSession)
+		navigateUrl(getRecipe(id, 'token'))
 	}
 	runIn(60*5, doDeviceSync)
 }
@@ -76,10 +79,12 @@ private def parseEventMessage(String description) {
 }
 
 
-private def evalJsonPath(String path, obj) {
+private def evalJsonPath(obj, String path) {
 	def json = obj
+	//log.debug("json source obj is : ${json}")
 	path.split("\\.").each { 
-		json = json ? json."${it}" : null
+		//log.debug("json obj part is : ${json} and path part is : ${it} and result is ${json[it]}")
+		json = json ? json[it] : null
 	}
 	return json
 }
@@ -110,8 +115,8 @@ def setState(response, browserSession) {
 private def getRecipe(id, command) {
 	def domain = "https://owner-api.teslamotors.com"
 	def STEPS = [
-			'secret': [name: 'secret', uri: 'http://pastebin.com/raw/YiLPDggh', state: [client_id: 'json:OWNERAPI_CLIENT_ID', client_secret: 'json:OWNERAPI_CLIENT_SECRET'], force_type: 'json', prefix: "{", suffix:'"dummy":"dummy"}']
-			'auth': [name: 'auth', uri: "${domain}/oauth/token", variables: [grant_type: 'password', client_id: "${client_id}", client_secret: "${client_secret}", email: "${settings.username}", password: "${settings.password}"], state: ['token': 'json:access_token'], processor: this.&setState],	
+			'secret': [name: 'secret', uri: 'http://pastebin.com/raw/YiLPDggh', state: [client_id: 'json:OWNERAPI_CLIENT_ID', client_secret: 'json:OWNERAPI_CLIENT_SECRET'], force_type: 'json', prefix: "{", suffix:'"dummy":"dummy"}'],
+			'auth': [name: 'auth', uri: "${domain}/oauth/token", variables: [grant_type: 'password', client_id: null, client_secret: null, email: "${settings.username}", password: "${settings.password}"], state: ['token': 'json:access_token'], processor: this.&setState,  method: "post"],	
 			'vehicles': [name: 'vehicles', uri: "${domain}/api/1/vehicles", headers: ['Authorization': "Bearer ${token}"]],	
 			]
 	def RECIPES = [
@@ -250,7 +255,7 @@ private def fillTemplate(template, map) {
 	return result
 }
 
-private def navigateUrl(recipe, browserSession) {
+private def navigateUrl(recipe, browserSession=[:]) {
     def params = recipe.pop()
 
 	def success = { response ->
@@ -286,6 +291,7 @@ private def navigateUrl(recipe, browserSession) {
 
 	if(params.uri) {
 		if(!browserSession.state) browserSession.state = [:]
+		if(!browserSession.vars) browserSession.vars = [:]
 		params.uri = fillTemplate(params.uri, browserSession.vars + browserSession.state)
         if(!params.headers) params.headers = [:]
 		if(!params.headers['Origin']) params.headers['Host'] = params.uri.toURI().host
@@ -294,17 +300,18 @@ private def navigateUrl(recipe, browserSession) {
 		params.headers['Accept-Language'] = 'en-US,en;q=0.5'
 
 		if(params.referer == 'self') params.referer = params.uri
-		if(params.referer) params.headers['Referer'] = params.referer
+		//if(params.referer) params.headers['Referer'] = params.referer
 		if(browserSession.cookies) {
 			params.headers['Cookie'] = browserSession.cookies.join(";")
 		}
-		if(browserSession.vars) {
+		if(browserSession.vars || browserSession.state) {
 			params.variables = (params.variables ? params.variables : [:])
 			params.variables.each {name, value ->
-				if(!value && browserSession.vars[name]) params.variables[name] = browserSession.vars[name]
+				if(browserSession && browserSession.vars && !value && browserSession.vars[name]) params.variables[name] = browserSession.vars[name]
+				if(browserSession && browserSession.state && !value && browserSession.state[name]) params.variables[name] = browserSession.state[name]
 			}
 		}
-		log.debug("navigating to ${params.uri} and method: ${params.method} and headers ${params.headers} and using params: ${params.variables}")
+		log.debug("navigating to ${params.uri} and method: ${params.method} and headers ${params.headers} and using params: ${params.variables} and state of ${browserSession.state}")
 		try {
 			if(params.method == 'post' && params.variables) {
 				params.body = toQueryString(params.variables)
